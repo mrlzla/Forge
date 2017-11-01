@@ -59,6 +59,8 @@ public class DepthwiseConvolutionKernel: ForgeKernel {
               featureChannels: Int,
               strideInPixelsX: Int = 1,
               strideInPixelsY: Int = 1,
+              dilationRateX: Int = 1,
+              dilationRateY: Int = 1,
               channelMultiplier: Int = 1,
               neuronFilter: MPSCNNNeuron?,
               kernelWeights: UnsafePointer<Float>,

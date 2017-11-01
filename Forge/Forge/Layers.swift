@@ -28,7 +28,7 @@ public enum PaddingType {
   case same    // add zero padding
   case valid   // don't add padding
 }
-
+//TODO: Recalculate it because of adding dilation rate
 func offsetForConvolution(padding: PaddingType,
                           sourceWidth: Int,
                           sourceHeight: Int,
@@ -182,6 +182,86 @@ public class MPSCNNLayer: Layer {
   }
 }
 
+
+class DataSource: NSObject, MPSCNNConvolutionDataSource {
+    let name: String
+    let kernelWidth: Int
+    let kernelHeight: Int
+    let inputFeatureChannels: Int
+    let outputFeatureChannels: Int
+    let useLeaky: Bool
+    
+    var data: Data?
+    
+    init( name: String,  kernelWidth: Int,  kernelHeight: Int,
+         inputFeatureChannels: Int, outputFeatureChannels: Int,
+         useLeaky: Bool = true) {
+        self.name = name
+        self.kernelWidth = kernelWidth
+        self.kernelHeight = kernelHeight
+        self.inputFeatureChannels = inputFeatureChannels
+        self.outputFeatureChannels = outputFeatureChannels
+        self.useLeaky = useLeaky
+    }
+    
+    func descriptor() -> MPSCNNConvolutionDescriptor {
+        let desc = MPSCNNConvolutionDescriptor(kernelWidth: kernelWidth,
+                                               kernelHeight: kernelHeight,
+                                               inputFeatureChannels: inputFeatureChannels,
+                                               outputFeatureChannels: outputFeatureChannels)
+        if useLeaky {
+            desc.setNeuronType(.reLU, parameterA: 0.1, parameterB: 0)
+            
+            // This layer has batch normalization applied to it. The data for this
+            // layer is stored as: [ weights | mean | variance | gamma | beta ].
+            data?.withUnsafeBytes { (ptr: UnsafePointer<Float>) -> Void in
+                let weightsSize = outputFeatureChannels * kernelHeight * kernelWidth * inputFeatureChannels
+                let mean = ptr.advanced(by: weightsSize)
+                let variance = mean.advanced(by: outputFeatureChannels)
+                let gamma = variance.advanced(by: outputFeatureChannels)
+                let beta = gamma.advanced(by: outputFeatureChannels)
+                desc.setBatchNormalizationParametersForInferenceWithMean(mean,
+                                                                         variance: variance, gamma: gamma, beta: beta, epsilon: 1e-3)
+            }
+        } else {
+            desc.setNeuronType(.none, parameterA: 0, parameterB: 0)
+        }
+        return desc
+    }
+    
+    func weights() -> UnsafeMutableRawPointer {
+        return UnsafeMutableRawPointer(mutating: (data! as NSData).bytes)
+    }
+    
+    func biasTerms() -> UnsafeMutablePointer<Float>? {
+        return nil
+    }
+    
+    func load() -> Bool {
+        if let url = Bundle.main.url(forResource: name, withExtension: "bin") {
+            do {
+                data = try Data(contentsOf: url)
+                return true
+            } catch {
+                print("Error: could not load \(url): \(error)")
+            }
+        }
+        return false
+    }
+    
+    func purge() {
+        data = nil
+    }
+    
+    func label() -> String? {
+        return name
+    }
+    
+    func dataType() -> MPSDataType {
+        return .float32
+    }
+}
+
 /**
   Convolutional layer.
 */
@@ -189,6 +269,7 @@ public class Convolution: MPSCNNLayer {
   let kernel: (Int, Int)
   let channels: Int
   let stride: (Int, Int)
+  let dilation: (Int, Int) // ios 11+
   let padding: PaddingType
   let activation: MPSCNNNeuron?
   var conv: MPSCNNConvolution!
@@ -200,6 +281,7 @@ public class Convolution: MPSCNNLayer {
       - kernel: `(width, height)`
       - channels: Number of output channels.
       - stride: `(x, y)`
+      - dilation: `(x, y)`
       - padding: If .same, the output width and height are the same as the
         input width and height. (This uses zero padding.)
       - useBias: whether this layer uses bias terms in addition to the weights
@@ -208,6 +290,7 @@ public class Convolution: MPSCNNLayer {
   public init(kernel: (Int, Int),
               channels: Int,
               stride: (Int, Int) = (1, 1),
+              dilation: (Int, Int) = (1, 1),
               padding: PaddingType = .same,
               activation: MPSCNNNeuron? = nil,
               useBias: Bool = true,
@@ -215,6 +298,7 @@ public class Convolution: MPSCNNLayer {
     self.kernel = kernel
     self.channels = channels
     self.stride = stride
+    self.dilation = dilation
     self.padding = padding
     self.activation = activation
     super.init(name: name, useBias: useBias)
@@ -259,6 +343,8 @@ public class Convolution: MPSCNNLayer {
 
     let desc = MPSCNNConvolutionDescriptor(kernelWidth: kernel.0,
                                            kernelHeight: kernel.1,
+                                           dilationRateX: dilation.0,
+                                           dilationRateY: dilation.1, 
                                            inputFeatureChannels: inputShape.channels,
                                            outputFeatureChannels: outputShape.channels,
                                            neuronFilter: activation)
@@ -295,6 +381,103 @@ public class Convolution: MPSCNNLayer {
                  sourceTensor: sourceTensor,
                  destinationTensor: destinationTensor)
   }
+}
+
+
+/**
+ ConvolutionTranspose layer.
+ */
+public class ConvolutionTranspose: MPSCNNLayer {
+    let kernel: (Int, Int)
+    let channels: Int
+    let stride: (Int, Int)
+    let padding: PaddingType
+    let activation: MPSCNNNeuron?
+    var conv: MPSCNNConvolutionTranspose!
+    
+    override public var typeName: String {
+        return "ConvTranspose"
+    }
+    
+    override public func outputShape(for inputShape: DataShape) -> DataShape {
+        if padding == .same {
+            return DataShape(width: (inputShape.width - 1)  * stride.0 + 1,
+                             height: (inputShape.height - 1) * stride.1 + 1,
+                             channels: channels)
+        } else {
+            return DataShape(width: (inputShape.width  - kernel.0) * stride.0 + 1,
+                             height: (inputShape.height - kernel.1) * stride.1 + 1,
+                             channels:  channels)
+        }
+    }
+    
+    override public func weightCount(inputShape: DataShape, outputShape: DataShape) -> Int {
+        return inputShape.channels * kernel.1 * kernel.0 * outputShape.channels
+    }
+    
+    override public func biasCount(inputShape: DataShape, outputShape: DataShape) -> Int {
+        return useBias ? inputShape.channels : 0
+    }
+    
+    public init(kernel: (Int, Int),
+                channels: Int,
+                stride: (Int, Int) = (1, 1),
+                padding: PaddingType = .same,
+                activation: MPSCNNNeuron? = nil,
+                useBias: Bool = true,
+                name: String = "") {
+        self.kernel = kernel
+        self.channels = channels
+        self.stride = stride
+        self.padding = padding
+        self.activation = activation
+        super.init(name: name, useBias: useBias)
+    }
+    
+    override public func createCompute(device: MTLDevice,
+                                       inputShape: DataShape,
+                                       outputShape: DataShape,
+                                       weights: ParameterData?,
+                                       biases: ParameterData?) throws {
+        guard let weights = weights else {
+            throw ModelError.compileError(message: "missing weights for layer '\(name)'")
+        }
+        
+        conv = MPSCNNConvolutionTranspose(device: device, weights: DataSource(
+                name: name,
+                kernelWidth: kernel.0,
+                kernelHeight: kernel.1,
+                inputFeatureChannels: inputShape.channels,
+                outputFeatureChannels: outputShape.channels
+            ))
+        
+        conv.edgeMode = .zero
+        mpscnn = conv
+    }
+    
+    override public func encode(commandBuffer: MTLCommandBuffer,
+                                sourceTensor: Tensor,
+                                destinationTensor: Tensor) {
+        
+        // We compute the padding at encode-time, so that this layer can be
+        // reused on tensors of different sizes. Note that the input and output
+        // depth must not vary, only the width and height may be different.
+
+        //TODO: Recalculate it for conv transpose
+        conv.offset = offsetForConvolution(padding: padding,
+                                           sourceWidth: sourceTensor.shape.width,
+                                           sourceHeight: sourceTensor.shape.height,
+                                           destinationWidth: destinationTensor.shape.width,
+                                           destinationHeight: destinationTensor.shape.height,
+                                           kernelWidth: kernel.0,
+                                           kernelHeight: kernel.1,
+                                           strideInPixelsX: stride.0,
+                                           strideInPixelsY: stride.1)
+        
+        super.encode(commandBuffer: commandBuffer,
+                     sourceTensor: sourceTensor,
+                     destinationTensor: destinationTensor)
+    }
 }
 
 /**
@@ -702,6 +885,7 @@ public class Custom: Layer {
 public class DepthwiseConvolution: Layer {
   let kernel: (Int, Int)
   let stride: (Int, Int)
+  let dilation: (Int, Int)
   let activation: MPSCNNNeuron?
   var compute: Any!
 
@@ -713,17 +897,20 @@ public class DepthwiseConvolution: Layer {
     - Parameters:
       - kernel: `(width, height)`
       - stride: `(x, y)`
+      - dilation: `(x,y)`
       - useReLU: Whether to apply a ReLU directly in the shader. You can also
         add `Activation(relu)` behind this layer instead.
       - name: The name is used to load the layer's parameters.
   */
   public init(kernel: (Int, Int),
               stride: (Int, Int) = (1, 1),
+              dilation: (Int, Int) = (1, 1),
               activation: MPSCNNNeuron? = nil,
               useBias: Bool = true,
               name: String = "") {
     self.kernel = kernel
     self.stride = stride
+    self.dilation = dilation
     self.activation = activation
     super.init(name: name, useBias: useBias)
   }
@@ -767,6 +954,8 @@ public class DepthwiseConvolution: Layer {
     if #available(iOS 11.0, *) {
       let desc = MPSCNNDepthWiseConvolutionDescriptor(kernelWidth: kernel.0,
                                                       kernelHeight: kernel.1,
+                                                      dilationRateX: dilation.0,
+                                                      dilationRateY: dilation.1,
                                                       inputFeatureChannels: inputShape.channels,
                                                       outputFeatureChannels: inputShape.channels,
                                                       neuronFilter: activation)
@@ -787,13 +976,15 @@ public class DepthwiseConvolution: Layer {
                                            featureChannels: inputShape.channels,
                                            strideInPixelsX: stride.0,
                                            strideInPixelsY: stride.1,
+                                           dilationRateX: dilation.0,
+                                           dilationRateY: dilation.1,
                                            channelMultiplier: 1,
                                            neuronFilter: activation,
                                            kernelWeights: weights.pointer,
                                            biasTerms: biasTerms)
     }
   }
-
+  //Recalculate it because of dilation
   override public func encode(commandBuffer: MTLCommandBuffer,
                               sourceTensor: Tensor,
                               destinationTensor: Tensor) {

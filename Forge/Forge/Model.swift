@@ -175,6 +175,8 @@ public class Model {
     for (i, tensor) in tensors.enumerated() {
       if let layer = tensor.layer {
         numLayers += 1
+        
+        print(layer.name)
 
         // Assign a name to any layers that don't have one.
         if layer.name.isEmpty {

@@ -77,6 +77,7 @@ class MobileNet: NeuralNetwork {
           --> PointwiseConvolution(channels: channels*32, activation: relu, name: "conv5_6_sep")
           --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv6_dw")
           --> PointwiseConvolution(channels: channels*32, activation: relu, name: "conv6_sep")
+          --> ConvolutionTranspose(kernel: (3, 3), channels: channels, stride: (2, 2), activation: relu, name: "convt1")
           --> GlobalAveragePooling()
           --> Dense(neurons: classes, activation: nil, name: "fc7")
           --> Softmax()
