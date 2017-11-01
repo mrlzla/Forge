@@ -59,7 +59,7 @@ public enum ModelError: Error {
 */
 public class Model {
   let input: Tensor
-  let output: Tensor
+  let output: [Tensor]
 
   var compiled = false
   var tensors: [Tensor] = []
@@ -79,9 +79,14 @@ public class Model {
   var firstComputeLayer = true
   var sourceTexture: MTLTexture?
 
-  public init(input: Tensor, output: Tensor) {
+  public init(input: Tensor, output: [Tensor]) {
     self.input = input
     self.output = output
+    
+    for (i, _) in self.output.enumerated() {
+        self.output[i].isOutput = true
+        self.output[i].isOutput = true
+    }
   }
 
   deinit {
@@ -220,15 +225,21 @@ public class Model {
 
       // Make an MPSImage for any tensor that asks for a real image instead
       // of a temporary one. We keep track of these in a dictionary.
+        
       if !tensor.imageIsTemporary {
+        addOutputImage(for: tensor)
+      }
+        
+      if tensor.isOutput {
         addOutputImage(for: tensor)
       }
     }
 
     // Always make an MPSImage for the last tensor.
-    if let output = tensors.last {
-      addOutputImage(for: output)
-    }
+    //if let output = tensors.last {
+      //addOutputImage(for: output)
+    //}
+    
   }
 
   /**
@@ -425,7 +436,7 @@ public class Model {
   }
 
   /** Returns the output from the last tensor in the model. */
-  public func outputImage(inflightIndex: Int) -> MPSImage {
-    return image(for: output, inflightIndex: inflightIndex)
+  public func outputImage(index: Int, inflightIndex: Int) -> MPSImage {
+    return image(for: output[index], inflightIndex: inflightIndex)
   }
 }

@@ -81,6 +81,8 @@ public class Tensor {
   // when we're done using it (so that we don't hang on to images for longer
   // than necessary).
   var readCount = 1
+    
+  var isOutput: Bool = false
 
   fileprivate init() { }
 

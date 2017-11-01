@@ -28,20 +28,43 @@ public enum PaddingType {
   case same    // add zero padding
   case valid   // don't add padding
 }
+
+
 //TODO: Recalculate it because of adding dilation rate
 func offsetForConvolution(padding: PaddingType,
-                          sourceWidth: Int,
-                          sourceHeight: Int,
-                          destinationWidth: Int,
-                          destinationHeight: Int,
+                          sourceWidth:  Int,
+                          sourceHeight:  Int,
+                          destinationWidth:  Int,
+                          destinationHeight:  Int,
                           kernelWidth: Int,
                           kernelHeight: Int,
                           strideInPixelsX: Int,
-                          strideInPixelsY: Int) -> MPSOffset {
+                          strideInPixelsY: Int,
+                          isTranspose: Bool = false) -> MPSOffset {
+    var dW = destinationWidth
+    var dH = destinationHeight
+    
+    var sW = sourceWidth
+    var sH = sourceHeight
+    
+    if isTranspose {
+        let temporaryA = dW
+        dW = sW
+        sW = temporaryA
+
+        let temporaryB = dH
+        dH = sH
+        sH = temporaryB
+    }
+    
   if padding == .same {
-    let padH = (destinationHeight - 1) * strideInPixelsY + kernelHeight - sourceHeight
-    let padW = (destinationWidth  - 1) * strideInPixelsX + kernelWidth  - sourceWidth
-    return MPSOffset(x: (kernelWidth - padW)/2, y: (kernelHeight - padH)/2, z: 0)
+    let padH = (dH - 1) * strideInPixelsY + kernelHeight - sH
+    let padW = (dW  - 1) * strideInPixelsX + kernelWidth  - sW
+    if isTranspose {
+        return MPSOffset(x: (kernelWidth + padW)/2, y: (kernelHeight + padH)/2, z: 0)
+    }else{
+        return MPSOffset(x: (kernelWidth - padW)/2, y: (kernelHeight - padH)/2, z: 0)
+    }
   } else {
     return MPSOffset(x: kernelWidth/2, y: kernelHeight/2, z: 0)
   }
@@ -184,17 +207,20 @@ public class MPSCNNLayer: Layer {
 
 
 class DataSource: NSObject, MPSCNNConvolutionDataSource {
-    let name: String
     let kernelWidth: Int
     let kernelHeight: Int
     let inputFeatureChannels: Int
     let outputFeatureChannels: Int
     let useLeaky: Bool
-    
+    let name: String
+    let bias: UnsafeMutablePointer<Float>?
+    let kernelWeights: UnsafeMutablePointer<Float>
     var data: Data?
     
-    init( name: String,  kernelWidth: Int,  kernelHeight: Int,
+    init(name: String, kernelWidth: Int,  kernelHeight: Int,
          inputFeatureChannels: Int, outputFeatureChannels: Int,
+         kernelWeights: ParameterData?,
+         biases: ParameterData?,
          useLeaky: Bool = true) {
         self.name = name
         self.kernelWidth = kernelWidth
@@ -202,6 +228,8 @@ class DataSource: NSObject, MPSCNNConvolutionDataSource {
         self.inputFeatureChannels = inputFeatureChannels
         self.outputFeatureChannels = outputFeatureChannels
         self.useLeaky = useLeaky
+        self.bias = biases?.pointer
+        self.kernelWeights = kernelWeights!.pointer
     }
     
     func descriptor() -> MPSCNNConvolutionDescriptor {
@@ -214,15 +242,15 @@ class DataSource: NSObject, MPSCNNConvolutionDataSource {
             
             // This layer has batch normalization applied to it. The data for this
             // layer is stored as: [ weights | mean | variance | gamma | beta ].
-            data?.withUnsafeBytes { (ptr: UnsafePointer<Float>) -> Void in
-                let weightsSize = outputFeatureChannels * kernelHeight * kernelWidth * inputFeatureChannels
-                let mean = ptr.advanced(by: weightsSize)
-                let variance = mean.advanced(by: outputFeatureChannels)
-                let gamma = variance.advanced(by: outputFeatureChannels)
-                let beta = gamma.advanced(by: outputFeatureChannels)
-                desc.setBatchNormalizationParametersForInferenceWithMean(mean,
-                                                                         variance: variance, gamma: gamma, beta: beta, epsilon: 1e-3)
-            }
+//            data?.withUnsafeBytes { (ptr: UnsafePointer<Float>) -> Void in
+//                let weightsSize = outputFeatureChannels * kernelHeight * kernelWidth * inputFeatureChannels
+//                let mean = ptr.advanced(by: weightsSize)
+//                let variance = mean.advanced(by: outputFeatureChannels)
+//                let gamma = variance.advanced(by: outputFeatureChannels)
+//                let beta = gamma.advanced(by: outputFeatureChannels)
+//                desc.setBatchNormalizationParametersForInferenceWithMean(mean,
+//                                                                         variance: variance, gamma: gamma, beta: beta, epsilon: 1e-3)
+//            }
         } else {
             desc.setNeuronType(.none, parameterA: 0, parameterB: 0)
         }
@@ -230,23 +258,16 @@ class DataSource: NSObject, MPSCNNConvolutionDataSource {
     }
     
     func weights() -> UnsafeMutableRawPointer {
-        return UnsafeMutableRawPointer(mutating: (data! as NSData).bytes)
+        //return UnsafeMutableRawPointer(mutating: (data! as NSData).bytes)
+        return UnsafeMutableRawPointer(self.kernelWeights)
     }
     
     func biasTerms() -> UnsafeMutablePointer<Float>? {
-        return nil
+        return self.bias
     }
     
     func load() -> Bool {
-        if let url = Bundle.main.url(forResource: name, withExtension: "bin") {
-            do {
-                data = try Data(contentsOf: url)
-                return true
-            } catch {
-                print("Error: could not load \(url): \(error)")
-            }
-        }
-        return false
+        return true
     }
     
     func purge() {
@@ -310,8 +331,8 @@ public class Convolution: MPSCNNLayer {
 
   override public func outputShape(for inputShape: DataShape) -> DataShape {
     if padding == .same {
-      return DataShape(width: (inputShape.width - 1)  / stride.0 + 1,
-                      height: (inputShape.height - 1) / stride.1 + 1,
+      return DataShape(width: (inputShape.width)  / stride.0,
+                      height: (inputShape.height) / stride.1,
                     channels: channels)
     } else {
       return DataShape(width: (inputShape.width  - kernel.0) / stride.0 + 1,
@@ -343,11 +364,12 @@ public class Convolution: MPSCNNLayer {
 
     let desc = MPSCNNConvolutionDescriptor(kernelWidth: kernel.0,
                                            kernelHeight: kernel.1,
-                                           dilationRateX: dilation.0,
-                                           dilationRateY: dilation.1, 
                                            inputFeatureChannels: inputShape.channels,
                                            outputFeatureChannels: outputShape.channels,
                                            neuronFilter: activation)
+    desc.dilationRateX = dilation.0
+    desc.dilationRateY = dilation.1
+    
     desc.strideInPixelsX = stride.0
     desc.strideInPixelsY = stride.1
 
@@ -401,12 +423,12 @@ public class ConvolutionTranspose: MPSCNNLayer {
     
     override public func outputShape(for inputShape: DataShape) -> DataShape {
         if padding == .same {
-            return DataShape(width: (inputShape.width - 1)  * stride.0 + 1,
-                             height: (inputShape.height - 1) * stride.1 + 1,
+            return DataShape(width: inputShape.width * stride.0,
+                             height: inputShape.height * stride.1,
                              channels: channels)
         } else {
-            return DataShape(width: (inputShape.width  - kernel.0) * stride.0 + 1,
-                             height: (inputShape.height - kernel.1) * stride.1 + 1,
+            return DataShape(width: (inputShape.width  - 1) * stride.0 + kernel.0,
+                             height: (inputShape.height - 1) * stride.1 + kernel.1,
                              channels:  channels)
         }
     }
@@ -416,7 +438,7 @@ public class ConvolutionTranspose: MPSCNNLayer {
     }
     
     override public func biasCount(inputShape: DataShape, outputShape: DataShape) -> Int {
-        return useBias ? inputShape.channels : 0
+        return useBias ? outputShape.channels : 0
     }
     
     public init(kernel: (Int, Int),
@@ -448,7 +470,9 @@ public class ConvolutionTranspose: MPSCNNLayer {
                 kernelWidth: kernel.0,
                 kernelHeight: kernel.1,
                 inputFeatureChannels: inputShape.channels,
-                outputFeatureChannels: outputShape.channels
+                outputFeatureChannels: outputShape.channels,
+                kernelWeights: weights,
+                biases: biases
             ))
         
         conv.edgeMode = .zero
@@ -472,7 +496,8 @@ public class ConvolutionTranspose: MPSCNNLayer {
                                            kernelWidth: kernel.0,
                                            kernelHeight: kernel.1,
                                            strideInPixelsX: stride.0,
-                                           strideInPixelsY: stride.1)
+                                           strideInPixelsY: stride.1,
+                                            isTranspose: true)
         
         super.encode(commandBuffer: commandBuffer,
                      sourceTensor: sourceTensor,
@@ -954,11 +979,12 @@ public class DepthwiseConvolution: Layer {
     if #available(iOS 11.0, *) {
       let desc = MPSCNNDepthWiseConvolutionDescriptor(kernelWidth: kernel.0,
                                                       kernelHeight: kernel.1,
-                                                      dilationRateX: dilation.0,
-                                                      dilationRateY: dilation.1,
                                                       inputFeatureChannels: inputShape.channels,
                                                       outputFeatureChannels: inputShape.channels,
                                                       neuronFilter: activation)
+      desc.dilationRateX = dilation.0
+      desc.dilationRateY = dilation.1
+        
       desc.strideInPixelsX = stride.0
       desc.strideInPixelsY = stride.1
 

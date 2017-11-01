@@ -37,56 +37,61 @@ class MobileNet: NeuralNetwork {
     self.classes = classes
 
     let relu = MPSCNNNeuronReLU(device: device, a: 0)
+    let sigmoid = MPSCNNNeuronSigmoid(device: device)
 
     let channels = Int(32 * widthMultiplier)
-    let resolution = Int(224 * resolutionMultiplier)
+    let resolution = Int(256 * resolutionMultiplier)
 
     let input = Input()
 
     var x = input
-        --> Resize(width: resolution, height: resolution)
+        --> Resize(width: 256, height: 512)
         --> Custom(Preprocessing(device: device), channels: 3)
         --> Convolution(kernel: (3, 3), channels: channels, stride: (2, 2), activation: relu, name: "conv1")
-        --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv2_1_dw")
-        --> PointwiseConvolution(channels: channels*2, activation: relu, name: "conv2_1_sep")
-        --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv2_2_dw")
-        --> PointwiseConvolution(channels: channels*4, activation: relu, name: "conv2_2_sep")
-        --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv3_1_dw")
-        --> PointwiseConvolution(channels: channels*4, activation: relu, name: "conv3_1_sep")
-        --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv3_2_dw")
-        --> PointwiseConvolution(channels: channels*8, activation: relu, name: "conv3_2_sep")
-        --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv4_1_dw")
-        --> PointwiseConvolution(channels: channels*8, activation: relu, name: "conv4_1_sep")
-        --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv4_2_dw")
-        --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv4_2_sep")
+        --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_1")
+        --> PointwiseConvolution(channels: channels*2, activation: relu, name: "conv_pw_1")
+        --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv_dw_2")
+        --> PointwiseConvolution(channels: channels*4, activation: relu, name: "conv_pw_2")
+        --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_3")
+        --> PointwiseConvolution(channels: channels*4, activation: relu, name: "conv_pw_3")
+        --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv_dw_4")
+        --> PointwiseConvolution(channels: channels*8, activation: relu, name: "conv_pw_4")
+        --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_5")
+        --> PointwiseConvolution(channels: channels*8, activation: relu, name: "conv_pw_5")
+        --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv_dw_6")
+        --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_6")
 
     if !shallow {
-      x = x --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv5_1_dw")
-            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv5_1_sep")
-            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv5_2_dw")
-            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv5_2_sep")
-            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv5_3_dw")
-            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv5_3_sep")
-            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv5_4_dw")
-            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv5_4_sep")
-            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv5_5_dw")
-            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv5_5_sep")
+      x = x --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_7")
+            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_7")
+            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_8")
+            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_8")
+            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_9")
+            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_9")
+            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_10")
+            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_10")
+            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_11")
+            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_11")
     }
 
-    x = x --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv5_6_dw")
-          --> PointwiseConvolution(channels: channels*32, activation: relu, name: "conv5_6_sep")
-          --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv6_dw")
-          --> PointwiseConvolution(channels: channels*32, activation: relu, name: "conv6_sep")
-          --> GlobalAveragePooling()
-          --> Dense(neurons: classes, activation: nil, name: "fc7")
-          --> Softmax()
+    x = x --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv_dw_12")
+          --> PointwiseConvolution(channels: channels*32, activation: relu, name: "conv_pw_12")
+          --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_13")
+          --> PointwiseConvolution(channels: channels*32, activation: relu, name: "conv_pw_13")
+  
+    var parts = x --> ConvolutionTranspose(kernel: (3, 3), channels: 14, stride: (2, 2), activation: sigmoid, name: "conv2d_transpose_1")
+    var locref = x --> ConvolutionTranspose(kernel: (3, 3), channels: 28, stride: (2, 2), activation: nil, name: "conv2d_transpose_2")
 
-    model = Model(input: input, output: x)
+    var outputs: [Tensor] = [parts, locref]
+    
+    
+    
+    model = Model(input: input, output: outputs)
 
     let success = model.compile(device: device, inflightBuffers: inflightBuffers) {
       name, count, type in ParameterLoaderBundle(name: name,
                                                  count: count,
-                                                 suffix: type == .weights ? "_w" : "_b",
+                                                 suffix: type == .weights ? "_W" : "_b",
                                                  ext: "bin")
     }
 
@@ -100,11 +105,10 @@ class MobileNet: NeuralNetwork {
   }
 
   public func fetchResult(inflightIndex: Int) -> NeuralNetworkResult<Prediction> {
-    let probabilities = model.outputImage(inflightIndex: inflightIndex).toFloatArray()
-    assert(probabilities.count == (self.classes / 4) * 4)
+    let parts = model.outputImage(index: 0, inflightIndex: inflightIndex).toFloatArray()
+    let locref = model.outputImage(index: 1, inflightIndex: inflightIndex).toFloatArray()
 
     var result = NeuralNetworkResult<Prediction>()
-    result.predictions = probabilities.top(k: 5).map { x -> Prediction in (x.0, x.1) }
     return result
   }
 }
