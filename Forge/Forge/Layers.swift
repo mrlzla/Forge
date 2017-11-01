@@ -41,25 +41,20 @@ func offsetForConvolution(padding: PaddingType,
                           strideInPixelsX: Int,
                           strideInPixelsY: Int,
                           isTranspose: Bool = false) -> MPSOffset {
-    var dW = destinationWidth
-    var dH = destinationHeight
+    var destW = destinationWidth
+    var destH = destinationHeight
     
-    var sW = sourceWidth
-    var sH = sourceHeight
+    var sourceW = sourceWidth
+    var sourceH = sourceHeight
     
     if isTranspose {
-        let temporaryA = dW
-        dW = sW
-        sW = temporaryA
-
-        let temporaryB = dH
-        dH = sH
-        sH = temporaryB
+        swap(&destW, &sourceW)
+        swap(&destH, &sourceH)
     }
     
   if padding == .same {
-    let padH = (dH - 1) * strideInPixelsY + kernelHeight - sH
-    let padW = (dW  - 1) * strideInPixelsX + kernelWidth  - sW
+    let padH = (destH - 1) * strideInPixelsY + kernelHeight - sourceH
+    let padW = (destW  - 1) * strideInPixelsX + kernelWidth  - sourceW
     if isTranspose {
         return MPSOffset(x: (kernelWidth + padW)/2, y: (kernelHeight + padH)/2, z: 0)
     }else{

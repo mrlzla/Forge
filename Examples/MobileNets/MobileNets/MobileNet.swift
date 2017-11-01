@@ -43,48 +43,52 @@ class MobileNet: NeuralNetwork {
     let resolution = Int(256 * resolutionMultiplier)
 
     let input = Input()
-
+    
     var x = input
         --> Resize(width: 256, height: 512)
         --> Custom(Preprocessing(device: device), channels: 3)
         --> Convolution(kernel: (3, 3), channels: channels, stride: (2, 2), activation: relu, name: "conv1")
-        --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_1")
-        --> PointwiseConvolution(channels: channels*2, activation: relu, name: "conv_pw_1")
-        --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv_dw_2")
-        --> PointwiseConvolution(channels: channels*4, activation: relu, name: "conv_pw_2")
-        --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_3")
-        --> PointwiseConvolution(channels: channels*4, activation: relu, name: "conv_pw_3")
-        --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv_dw_4")
-        --> PointwiseConvolution(channels: channels*8, activation: relu, name: "conv_pw_4")
-        --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_5")
-        --> PointwiseConvolution(channels: channels*8, activation: relu, name: "conv_pw_5")
-        --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv_dw_6")
-        --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_6")
 
-    if !shallow {
-      x = x --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_7")
-            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_7")
-            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_8")
-            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_8")
-            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_9")
-            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_9")
-            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_10")
-            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_10")
-            --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_11")
-            --> PointwiseConvolution(channels: channels*16, activation: relu, name: "conv_pw_11")
+    var current_stride = 2
+    var rate = 1
+    var layer_rate = (1, 1)
+    var layer_stride= (1,1)
+    let output_stride = 16
+    let channels_mult = [2, 4, 4, 8, 8, 16, 16, 16, 16, 16, 16, 32, 32]
+    let strides = [
+      (1,1),
+      (2,2),
+      (1,1),
+      (2,2),
+      (1,1),
+      (2,2),
+      (1,1),
+      (1,1),
+      (1,1),
+      (1,1),
+      (1,1),
+      (2,2),
+      (1,1),
+    ]
+    for index in 0..13 {
+      if current_stride == output_stride {
+          layer_stride = (1, 1)
+          layer_rate = (rate, rate)
+          rate *= strides[index]
+      } 
+      else {
+        layer_stride = (strides[index], strides[index])
+        layer_rate = (1, 1)
+        current_stride *= strides[index]
+      }
+      x = x --> DepthwiseConvolution(kernel: (3, 3), stride: layer_stride, dilation: layer_rate, activation: relu, name: "conv_dw_" + String(ind + 1))
+            --> PointwiseConvolution(channels: channels*channels_mult[index], activation: relu, name: "conv_pw_" + String(ind + 1))
     }
-
-    x = x --> DepthwiseConvolution(kernel: (3, 3), stride: (2, 2), activation: relu, name: "conv_dw_12")
-          --> PointwiseConvolution(channels: channels*32, activation: relu, name: "conv_pw_12")
-          --> DepthwiseConvolution(kernel: (3, 3), activation: relu, name: "conv_dw_13")
-          --> PointwiseConvolution(channels: channels*32, activation: relu, name: "conv_pw_13")
   
     var parts = x --> ConvolutionTranspose(kernel: (3, 3), channels: 14, stride: (2, 2), activation: sigmoid, name: "conv2d_transpose_1")
     var locref = x --> ConvolutionTranspose(kernel: (3, 3), channels: 28, stride: (2, 2), activation: nil, name: "conv2d_transpose_2")
 
     var outputs: [Tensor] = [parts, locref]
-    
-    
     
     model = Model(input: input, output: outputs)
 
