@@ -47,7 +47,7 @@ class MobileNet: NeuralNetwork {
     var x = input
         --> Resize(width: 256, height: 384)
         --> Custom(Preprocessing(device: device), channels: 3)
-        --> Convolution(kernel: (3, 3), channels: channels, stride: (2, 2), activation: relu, name: "conv1")
+        --> Convolution(kernel: (3, 3), channels: channels, stride: (2, 2), useBias: false, activation: relu, name: "conv1")
 
     var current_stride = 2
     var rate = 1
@@ -67,8 +67,8 @@ class MobileNet: NeuralNetwork {
         layer_rate = 1
         current_stride *= strides[index]
       }
-        x = x --> DepthwiseConvolution(kernel: (3, 3), stride: (layer_stride, layer_stride), dilation: (layer_rate, layer_rate), activation: relu, name: "conv_dw_" + String(index + 1))
-              --> PointwiseConvolution(channels: channels*channels_mult[index], activation: relu, name: "conv_pw_" + String(index + 1))
+        x = x --> DepthwiseConvolution(kernel: (3, 3), stride: (layer_stride, layer_stride), useBias: false, dilation: (layer_rate, layer_rate), activation: relu, name: "conv_dw_" + String(index + 1))
+              --> PointwiseConvolution(channels: channels*channels_mult[index], activation: relu, useBias: false, name: "conv_pw_" + String(index + 1))
     }
   
     var parts = x --> ConvolutionTranspose(kernel: (3, 3), channels: 14, stride: (2, 2), activation: sigmoid, name: "conv2d_transpose_1")
