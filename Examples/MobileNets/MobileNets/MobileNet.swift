@@ -45,50 +45,36 @@ class MobileNet: NeuralNetwork {
     let input = Input()
     
     var x = input
-        --> Resize(width: 256, height: 512)
+        --> Resize(width: 256, height: 384)
         --> Custom(Preprocessing(device: device), channels: 3)
         --> Convolution(kernel: (3, 3), channels: channels, stride: (2, 2), activation: relu, name: "conv1")
 
     var current_stride = 2
     var rate = 1
-    var layer_rate = (1, 1)
-    var layer_stride= (1,1)
+    var layer_rate = 1
+    var layer_stride = 1
     let output_stride = 16
     let channels_mult = [2, 4, 4, 8, 8, 16, 16, 16, 16, 16, 16, 32, 32]
-    let strides = [
-      (1,1),
-      (2,2),
-      (1,1),
-      (2,2),
-      (1,1),
-      (2,2),
-      (1,1),
-      (1,1),
-      (1,1),
-      (1,1),
-      (1,1),
-      (2,2),
-      (1,1),
-    ]
-    for index in 0..13 {
+    let strides = [1, 2, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1]
+    for index in (0...12) {
       if current_stride == output_stride {
-          layer_stride = (1, 1)
-          layer_rate = (rate, rate)
+          layer_stride = 1
+          layer_rate = rate
           rate *= strides[index]
       } 
       else {
-        layer_stride = (strides[index], strides[index])
-        layer_rate = (1, 1)
+        layer_stride = strides[index]
+        layer_rate = 1
         current_stride *= strides[index]
       }
-      x = x --> DepthwiseConvolution(kernel: (3, 3), stride: layer_stride, dilation: layer_rate, activation: relu, name: "conv_dw_" + String(ind + 1))
-            --> PointwiseConvolution(channels: channels*channels_mult[index], activation: relu, name: "conv_pw_" + String(ind + 1))
+        x = x --> DepthwiseConvolution(kernel: (3, 3), stride: (layer_stride, layer_stride), dilation: (layer_rate, layer_rate), activation: relu, name: "conv_dw_" + String(index + 1))
+              --> PointwiseConvolution(channels: channels*channels_mult[index], activation: relu, name: "conv_pw_" + String(index + 1))
     }
   
     var parts = x --> ConvolutionTranspose(kernel: (3, 3), channels: 14, stride: (2, 2), activation: sigmoid, name: "conv2d_transpose_1")
-    var locref = x --> ConvolutionTranspose(kernel: (3, 3), channels: 28, stride: (2, 2), activation: nil, name: "conv2d_transpose_2")
+    //var locref = x --> ConvolutionTranspose(kernel: (3, 3), channels: 28, stride: (2, 2), activation: nil, name: "conv2d_transpose_2")
 
-    var outputs: [Tensor] = [parts, locref]
+    var outputs: [Tensor] = [parts]
     
     model = Model(input: input, output: outputs)
 
@@ -109,8 +95,8 @@ class MobileNet: NeuralNetwork {
   }
 
   public func fetchResult(inflightIndex: Int) -> NeuralNetworkResult<Prediction> {
-    let parts = model.outputImage(index: 0, inflightIndex: inflightIndex).toFloatArray()
-    let locref = model.outputImage(index: 1, inflightIndex: inflightIndex).toFloatArray()
+    let parts = model.outputImage(index: 0).toFloatArray()
+    //let locref = model.outputImage(index: 1, inflightIndex: inflightIndex).toFloatArray()
 
     var result = NeuralNetworkResult<Prediction>()
     return result

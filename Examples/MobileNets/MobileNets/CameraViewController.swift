@@ -31,7 +31,7 @@ let MaxBuffersInFlight = 3   // use triple buffering
 /*
   The neural network from Google's MobileNets paper.
   
-	The paper says MobileNet-224 with alpha=1.0 has 4.2M parameters. 
+  The paper says MobileNet-224 with alpha=1.0 has 4.2M parameters. 
   We have 4,216,072, so that seems to be correct.
 */
 
